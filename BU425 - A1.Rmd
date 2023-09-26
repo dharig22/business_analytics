@@ -1,0 +1,386 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+---
+A.	Data Preparation: election_data.xlsx, data_preparation.R 
+---
+```{r}
+# Load required packages
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(caret)
+
+# Read in the data
+election_data <- read_excel("/Users/dhari/Downloads/election_data.xlsx")
+
+# Drop columns that are not needed
+election_data <- election_data %>% 
+  select(-County, -State, -Region, -FIPS, -ElectionDate)
+
+# Rename columns for readability
+election_data <- election_data %>% rename(
+  election_type = ElectionType,
+  total_vote = TotalVote,
+  clinton = Clinton,
+  obama = Obama,
+  male_female_ratio = MalesPer100Females,
+  age_below_35 = AgeBelow35,
+  age_35_65 = Age35to65,
+  age_above_65 = Age65andAbove,
+  white = White,
+  black = Black,
+  asian = Asian,
+  american_indian = AmericanIndian,
+  hawaiian = Hawaiian,
+  hispanic = Hispanic,
+  high_school = HighSchool,
+  bachelors = Bachelors,
+  poverty_rate = Poverty,
+  income_above_75k_rate = IncomeAbove75K,
+  median_income = MedianIncome,
+  avg_income = AverageIncome,
+  unemployment_rate = UnemployRate,
+  manf_employment = ManfEmploy,
+  non_english_speakers = SpeakingNonEnglish,
+  medicare_enrollees = Medicare,
+  medicare_enrollment_rate = MedicareRate,
+  social_security = SocialSecurity,
+  social_security_rate = SocialSecurityRate,
+  retired_workers = RetiredWorkers,
+  disabilities = Disabilities,
+  disabilities_rate = DisabilitiesRate,
+  homeowner_rate = Homeowner,
+  same_house_1995_2000_rate = SameHouse1995and2000,
+  population = Pop,
+  population_density = PopDensity,
+  land_area = LandArea,
+  farm_area = FarmArea
+)
+
+# Convert relevant columns to percentages
+election_data <- election_data %>% 
+  mutate_at(vars(high_school:bachelors, white:farm_area),
+            ~ifelse(str_detect(., "\\%"), as.numeric(str_replace(., "\\%", ""))/100, as.numeric(.)))
+
+#Create WinMargin variable 
+election_data <- election_data %>% mutate(WinMargin = obama - clinton)
+
+# Save data for analysis
+write_csv(election_data, "prepared_data.csv")
+
+```
+
+---
+B. Logistic Regression Model  
+---
+```{r}
+# Load required packages
+library(dplyr)
+library(tidyr)
+library(caret)
+
+# Read in the data
+election_data <- read_csv("/Users/dhari/Downloads/prepared_data.csv")
+
+# Remove rows with missing values
+election_data <- na.omit(election_data)
+
+# Create binary variable for the winner
+election_data$ObamaWin <- ifelse(election_data$WinMargin > 0, 1, 0)
+
+# Split data into training and testing sets
+set.seed(123)
+train_index <- createDataPartition(election_data$ObamaWin, p = 0.8, list = FALSE)
+train_data <- election_data[train_index, ]
+test_data <- election_data[-train_index, ]
+
+# Fit logistic regression model
+logit_model <- glm(ObamaWin ~ ., data = train_data, family = "binomial")
+
+# Predict on test data
+logit_prob <- predict(logit_model, newdata = test_data, type = "response")
+logit_pred <- ifelse(logit_prob > 0.5, "Obama", "Clinton")
+
+# Evaluate model performance
+logit_acc <- sum(logit_pred == test_data$ObamaWin) / nrow(test_data)
+logit_acc
+```
+
+---
+C. Decision Tree Model: 
+---
+```{r}
+# Load required packages
+library(rpart)
+library(rpart.plot)
+
+# Read in the data
+election_data <- read_csv("/Users/dhari/Downloads/prepared_data.csv")
+
+# Remove rows with missing values
+election_data <- na.omit(election_data)
+
+# Create train and test data
+set.seed(123)
+train_index <- sample(nrow(election_data), 0.8 * nrow(election_data))
+train_data <- election_data[train_index, ]
+test_data <- election_data[-train_index, ]
+
+# Fit the decision tree model
+tree_model <- rpart(WinMargin ~ ., data = train_data)
+
+# Plot the decision tree
+rpart.plot(tree_model)
+
+# Predict the outcome
+tree_pred <- predict(tree_model, newdata = test_data)
+
+# Evaluate the accuracy
+tree_acc <- mean((tree_pred >= 0.5) == (test_data$WinMargin >= 0))
+print(tree_acc)
+
+```
+
+
+---
+D. Random Forest Model: 
+---
+```{r}
+# Load required packages
+library(randomForest)
+
+# Read in the data
+election_data <- read_csv("/Users/dhari/Downloads/prepared_data.csv")
+
+# Remove rows with missing values
+election_data <- na.omit(election_data)
+
+# Create train and test data
+set.seed(123)
+train_index <- sample(nrow(election_data), 0.8 * nrow(election_data))
+train_data <- election_data[train_index, ]
+test_data <- election_data[-train_index, ]
+
+# Fit the random forest model
+rf_model <- randomForest(WinMargin ~ ., data = train_data, ntree = 500, mtry = 5)
+
+# Predict the outcome
+rf_pred <- predict(rf_model, newdata = test_data)
+
+# Evaluate the accuracy
+rf_acc <- mean((rf_pred >= 0.5) == (test_data$WinMargin >= 0))
+rf_acc
+
+```
+
+---
+E. Final Random Forest Model: 
+---
+```{r}
+# Load required packages
+library(randomForest)
+
+# Read in the data
+election_data <- read_csv("/Users/dhari/Downloads/prepared_data.csv")
+
+# Remove rows with missing values
+election_data <- na.omit(election_data)
+
+# Split the data into training and test sets
+set.seed(123)
+train_index <- createDataPartition(election_data$WinMargin, p = 0.8, list = FALSE)
+train_data <- election_data[train_index, ]
+test_data <- election_data[-train_index, ]
+
+# Fit the random forest model
+rf_model <- randomForest(WinMargin ~ white + black + asian + hispanic + high_school + bachelors + poverty_rate + median_income,
+                          data = train_data,
+                          ntree = 1000,
+                          mtry = 2,
+                          importance = TRUE)
+
+# Print variable importance
+varImpPlot(rf_model, main = "Variable Importance Plot")
+
+# Evaluate the model
+print(rf_model)
+print(importance(rf_model))
+
+# Predict the outcome
+rf_pred <- predict(rf_model, newdata = test_data)
+
+# Evaluate the accuracy
+rf_acc <- mean((rf_pred >= 0.5) == (test_data$WinMargin >= 0))
+print(rf_acc)
+
+```
+
+'''
+F.	Relationship Between Race & Vote: 
+'''
+```{r}
+library(dplyr)
+
+prepared_data <- read.csv("/Users/dhari/Downloads/prepared_data.csv")
+
+prepared_data <- na.omit(prepared_data)
+
+top_clinton_states <- prepared_data %>%
+  arrange(desc(total_vote)) %>%
+  filter(clinton > obama) %>%
+  head(10)
+
+top_obama_states <- prepared_data %>%
+  arrange(desc(total_vote)) %>%
+  filter(obama > clinton) %>%
+  head(10)
+
+racial_composition <- rbind(
+  top_clinton_states %>% 
+    select(white, black, asian, hispanic) %>% 
+    summarize_all(~ sum(.)/100) %>% 
+    pivot_longer(cols = everything(), names_to = "Racial Group", values_to = "Percentage") %>% 
+    mutate(Candidate = "Clinton"),
+  top_obama_states %>% 
+    select(white, black, asian, hispanic) %>% 
+    summarize_all(~ sum(.)/100) %>% 
+    pivot_longer(cols = everything(), names_to = "Racial Group", values_to = "Percentage") %>% 
+    mutate(Candidate = "Obama")
+)
+
+ggplot(racial_composition, aes(fill = Candidate, y = Percentage, x = `Racial Group`)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  ggtitle("Racial Composition of Top 10 Clinton and Obama Counties") +
+  ylab("Percentage of Population") +
+  xlab("Racial Group")
+
+```
+'''
+G.	Relationship Between Population Density & Vote: 
+'''
+```{r}
+# Plotting demographic variables against WinMargin
+library(ggplot2)
+
+prepared_data <- read.csv("/Users/dhari/Downloads/prepared_data.csv")
+
+prepared_data <- na.omit(prepared_data)
+
+prepared_data <- prepared_data %>% 
+  mutate(candidate = if_else(clinton > obama, "Clinton", "Obama"))
+
+ggplot(prepared_data, aes(x = population_density, y = WinMargin, color = candidate)) +
+  geom_point() +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title = "Margin of Victory by Population Density and Candidate", x = "Population Density", y = "Margin of Victory") 
+```
+```{r}
+library(dplyr)
+
+prepared_data <- read.csv("/Users/dhari/Downloads/prepared_data.csv")
+
+prepared_data <- na.omit(prepared_data)
+
+prepared_data <- prepared_data %>% 
+  mutate(candidate = if_else(clinton > obama, "Clinton", "Obama"))
+
+ggplot(prepared_data, aes(x = poverty_rate, y = WinMargin, color = candidate)) + 
+  geom_point() +
+  labs(title = "Win Margin by Poverty Rate",
+       x = "Poverty Rate", y = "Win Margin") +
+  scale_color_manual(values = c("blue", "red"))
+
+ggplot(prepared_data, aes(x = median_income, y = WinMargin, color = candidate)) + 
+  geom_point() +
+  labs(title = "Win Margin by Median Income",
+       x = "Median Income", y = "Win Margin") +
+  scale_color_manual(values = c("blue", "red"))
+
+ggplot(data = prepared_data, aes(x = poverty_rate, y = median_income, color = candidate)) +
+  geom_point(alpha = 0.6) +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title = "Relationship Between Poverty Rate, Median Income, and Candidate", 
+       x = "Poverty Rate", y = "Median Income") +
+  theme_bw()
+```
+
+```{r}
+install.packages("ggplot2")
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+
+# Read in the data
+election_data <- read_csv("/Users/dhari/Downloads/prepared_data.csv")
+
+# Add a county column to the original dataset
+election_data <- election_data %>% mutate(county = 1:n())
+
+# Filter the data to exclude counties that have already voted
+not_voted_counties <- election_data %>% 
+  filter(row_number() > 1737)
+
+# Create a new dataset with only the predictors
+predictors <- not_voted_counties %>% 
+  select(white, black, asian, american_indian, hawaiian, hispanic,
+         high_school, bachelors, poverty_rate, income_above_75k_rate, median_income,
+         avg_income, unemployment_rate, population_density)
+
+# Use the model to predict the win margins for Clinton and Obama in counties where the vote has not happened
+predicted_win_margins <- predict(rf_model, newdata = predictors)
+
+# Add the predicted win margins to the original dataset
+not_voted_counties$WinMargin <- predicted_win_margins
+
+
+# Create a new column in not_voted_counties to indicate the winner based on the predicted win margin
+not_voted_counties$Winner <- ifelse(not_voted_counties$WinMargin > 0, "Obama", "Clinton")
+
+# Filter the data to exclude rows where the election has already happened
+#not_voted_counties <- not_voted_counties %>% 
+  #filter(row_number() > 1737)
+
+not_voted_counties
+
+# Create a plot showcasing the forecast of win margins for all counties that did not vote yet
+ggplot(not_voted_counties, aes(x = county, y = WinMargin, color = Winner)) +
+  geom_point() +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title = "Forecast of Win Margins in Counties That Did Not Vote Yet", 
+       x = "County Number", y = "Win Margin")
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Add the predicted win margins to the original dataset for counties that have not voted yet
+election_data$WinMargin[1741:2868] <- predicted_win_margins
+
+# Create a new column in election_data to indicate the winner based on the predicted win margin
+election_data$Winner <- ifelse(election_data$WinMargin > 0, "Obama", "Clinton")
+
+# Create a plot showcasing the win margins for all counties
+ggplot(election_data, aes(x = county, y = WinMargin, color = Winner)) +
+  geom_point() +
+  scale_color_manual(values = c("blue", "red")) +
+  labs(title = "Forecast of Win Margins in Counties That Did Not Vote Yet", 
+       x = "County Number", y = "Win Margin")
+
+ggplot(election_data, aes(x = "", y = WinMargin, fill = Winner)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  labs(title = "Total Win Margins (including predicted counties)",
+       fill = "Candidate") +
+  scale_fill_manual(values = c("#1F77B4", "#D62728")) +
+  theme_void() +
+  theme(legend.position = "bottom") +
+  guides(fill=guide_legend(title="Candidates:"), polar = FALSE)
+
+```
